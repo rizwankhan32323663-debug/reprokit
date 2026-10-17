@@ -33,7 +33,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   ).bind(userId, userId).all();
   const storage = await env.DB.prepare(
     `SELECT COALESCE(SUM(a.size_bytes),0) AS bytes FROM attachments a
-     JOIN reports r ON r.id = a.report_id WHERE ${visible}`
+     JOIN reports r ON r.id = a.report_id WHERE ${visible} AND a.deleted_at IS NULL`
   ).bind(userId, userId).first<{ bytes: number }>();
   const unread = await env.DB.prepare(
     "SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read = 0"

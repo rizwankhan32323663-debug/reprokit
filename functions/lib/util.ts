@@ -2,7 +2,12 @@ import type { D1Database } from "@cloudflare/workers-types";
 
 export interface Env {
   DB: D1Database;
-  EVIDENCE: R2Bucket;
+  /** R2 binding — only present when STORAGE_PROVIDER=r2 and the bucket is bound. */
+  EVIDENCE?: R2Bucket;
+  /** KV binding — the default provider. Only present once the namespace is created + bound. */
+  EVIDENCE_KV?: KVNamespace;
+  /** 'kv' (default) | 'r2'. Unknown values fail closed (storage unavailable). */
+  STORAGE_PROVIDER?: string;
   BETTER_AUTH_SECRET: string;
   BETTER_AUTH_URL: string;
 }
@@ -28,6 +33,12 @@ export function now(): number {
 
 export async function sha256Hex(text: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** SHA-256 of raw bytes (file integrity, stored in provider metadata). */
+export async function sha256HexBytes(bytes: ArrayBuffer | Uint8Array): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 

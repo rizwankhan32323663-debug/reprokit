@@ -2,6 +2,7 @@ import { getSession } from "../../lib/auth";
 import { canEditReport, canViewReport, getReport, logActivity } from "../../lib/permissions";
 import { err, json, now, type Env } from "../../lib/util";
 import { reportUpdateSchema, zodErrorMessage } from "../../lib/schemas";
+import { getStorageProvider } from "../../lib/storage";
 
 async function load(context: { request: Request; env: Env; params: { id: string } }) {
   const session = await getSession(context.request, context.env);
@@ -20,7 +21,7 @@ export async function onRequestGet(context: { request: Request; env: Env; params
     "SELECT * FROM report_steps WHERE report_id = ? ORDER BY position ASC"
   ).bind(report.id).all();
   const attachments = await context.env.DB.prepare(
-    "SELECT id, filename, content_type, size_bytes, caption, is_redacted, created_at FROM attachments WHERE report_id = ? ORDER BY created_at ASC"
+    "SELECT id, filename, content_type, size_bytes, caption, is_redacted, created_at FROM attachments WHERE report_id = ? AND deleted_at IS NULL ORDER BY created_at ASC"
   ).bind(report.id).all();
   const comments = await context.env.DB.prepare(
     "SELECT c.*, u.name AS author_name FROM comments c JOIN user u ON u.id = c.author_id WHERE report_id = ? ORDER BY created_at ASC"
@@ -110,11 +111,14 @@ export async function onRequestDelete(context: { request: Request; env: Env; par
   if ("error" in loaded) return loaded.error;
   const { session, report } = loaded;
   if (!(await canEditReport(context.env.DB, session.user.id, report))) return err("Forbidden", 403);
-  // Delete R2 objects for this report's attachments first.
+  // Delete storage objects for this report's attachments first (including
+  // soft-deleted ones — their bytes must not linger after report deletion).
   const atts = await context.env.DB.prepare("SELECT r2_key FROM attachments WHERE report_id = ?").bind(report.id).all<{ r2_key: string }>();
+  const provider = getStorageProvider(context.env);
   for (const a of atts.results ?? []) {
+    if (!provider) break; // No provider configured: nothing to delete remotely.
     try {
-      await context.env.EVIDENCE.delete(a.r2_key);
+      await provider.delete(a.r2_key);
     } catch {
       // Continue: DB row removal below still applies; orphaned objects are
       // listed in README recovery notes.

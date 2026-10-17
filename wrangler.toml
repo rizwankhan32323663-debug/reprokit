@@ -28,3 +28,11 @@ database_id = "00000000-0000-0000-0000-000000000000"
 binding = "EVIDENCE"
 bucket_name = "reprokit-evidence"
 # Bucket is created in the dashboard at deploy time. Private: no public access.
+# Used ONLY when STORAGE_PROVIDER=r2 (see README storage section). Default is KV.
+
+[[kv_namespaces]]
+binding = "EVIDENCE_KV"
+# Real production KV namespace id (Workers & Pages -> KV -> reprokit-evidence-kv).
+# Wrangler requires the field even for --local; local dev uses miniflare's
+# local KV regardless of this value.
+id = "f12301ea8b314b8dbb6f41b5e3c7750f"

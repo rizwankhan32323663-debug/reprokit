@@ -11,6 +11,7 @@ verifies the production URL.
 - [x] Auth: better-auth 1.7.10 + `@better-auth/kysely-adapter` + `kysely-d1`,
       verified Workers/D1 compatible (needs `nodejs_compat` flag)
 - [x] D1 migrations 0001 (better-auth tables) / 0002 (app tables) / 0003 (assignee)
+      / 0004 (attachment soft-delete + provider tag)
       — applied locally, repeatable (2nd run = no-op)
 - [x] Backend: all endpoints (reports, steps, comments, attachments + redacted
       copies, share links, workspaces/members/invites, labels, notifications,
@@ -21,8 +22,13 @@ verifies the production URL.
       labels + assignee), report view, public share view, settings, workspaces,
       invite accept, privacy/terms/help, 404, light/dark themes
 - [x] Permissions on every endpoint (ownership + workspace checks, 403 w/o leak)
-- [x] R2: private bucket binding, magic-bytes validation, 10 MB limit,
-      authorized downloads, redacted copies as separate objects, originals kept
+- [x] Storage: modular `StorageProvider` (KV default, R2 behind `STORAGE_PROVIDER`);
+      KV private (no public URL), raw-binary uploads, magic-bytes validation,
+      10 MB limit, SHA-256 metadata, server-generated opaque keys, authorized
+      downloads proxied through the Worker, soft-delete with D1 `deleted_at`
+      gate, per-owner (200 MiB / 200 files) + per-workspace (500 MiB) quotas
+      enforced before upload, quota usage shown in UI, uploads honestly
+      disabled (503 + UI message) when no provider is configured
 - [x] Rate limiting (D1-backed): auth 5/15min per IP+email, reports 30/min,
       uploads 20/hour — tested (E2E #22–23)
 - [x] CSRF: SameSite=Lax cookies + Origin/Referer check on mutations;
@@ -35,7 +41,7 @@ verifies the production URL.
 - [x] PDF export: jsPDF vendored via npm, LICENSE copied to `public/vendor/`
 - [x] SEO: titles/meta/OG/favicon, semantic HTML, `robots.txt`, `sitemap.xml`
       (domain placeholder documented), private pages noindex
-- [x] Tests: `tsc` clean, `vite build` clean, unit 19/19, E2E 41/41 (local)
+- [x] Tests: `tsc` clean, `vite build` clean, unit 42/42, E2E 47/47 (local)
 - [x] Docs: README, CHECKLIST, TESTING, SECURITY, `.env.example`
 - [x] No secrets in repo (scanned); `.dev.vars` gitignored
 
@@ -44,7 +50,9 @@ verifies the production URL.
 - [ ] Cloudflare Pages project created + repo connected (build: `npm run build`, output: `dist`)
 - [ ] `nodejs_compat` compatibility flag set on the Pages project
 - [ ] D1 database `reprokit-db` created + bound as `DB` + migrations applied
-- [ ] R2 bucket `reprokit-evidence` created (private) + bound as `EVIDENCE`
+- [ ] KV namespace `reprokit-evidence-kv` created + bound as `EVIDENCE_KV`
+      (production + preview); real namespace id wired into `wrangler.toml`
+      (currently a clearly-marked placeholder)
 - [ ] `BETTER_AUTH_SECRET` set in dashboard secret storage (fresh production value)
 - [ ] `BETTER_AUTH_URL` set to the real production URL
 - [ ] Replace `REPLACE-WITH-PRODUCTION-URL` in `public/robots.txt` + `public/sitemap.xml`

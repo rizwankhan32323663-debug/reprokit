@@ -83,27 +83,34 @@ export const api = {
         req(`/api/reports/${id}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
     },
     attachments: {
+      // Raw binary upload (NOT FormData): bytes in the body, metadata in
+      // headers. Base64/multipart would inflate the payload and burn the
+      // Workers Free CPU budget. See functions/api/reports/[id]/attachments.ts.
       upload: async (id: string, file: File, caption: string) => {
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("caption", caption);
         const res = await fetch(`/api/reports/${id}/attachments`, {
           method: "POST",
           credentials: "same-origin",
-          body: fd,
+          headers: {
+            "Content-Type": file.type,
+            "X-Filename": encodeURIComponent(file.name),
+            "X-Caption": encodeURIComponent(caption),
+          },
+          body: file,
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new ApiError((data as { error?: string }).error || "Upload failed", res.status);
         return data as { id: string };
       },
       uploadRedacted: async (attachmentId: string, file: File, caption: string) => {
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("caption", caption);
         const res = await fetch(`/api/attachments/${attachmentId}/redacted`, {
           method: "POST",
           credentials: "same-origin",
-          body: fd,
+          headers: {
+            "Content-Type": file.type,
+            "X-Filename": encodeURIComponent(file.name),
+            "X-Caption": encodeURIComponent(caption),
+          },
+          body: file,
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new ApiError((data as { error?: string }).error || "Upload failed", res.status);
@@ -123,6 +130,17 @@ export const api = {
         req(`/api/reports/${id}/share/${linkId}`, { method: "DELETE" }),
       list: (id: string) => req<{ links: ShareLink[] }>(`/api/reports/${id}/share`),
     },
+  },
+  storage: {
+    status: (workspaceId?: string | null) =>
+      req<{
+        provider: "kv" | "r2" | "none";
+        configured: boolean;
+        quota: {
+          user: { usedBytes: number; maxBytes: number; files: number; maxFiles: number };
+          workspace: { usedBytes: number; maxBytes: number; files: number; maxFiles: number } | null;
+        };
+      }>(`/api/storage${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ""}`),
   },
   shareView: (token: string) => req<PublicReport>(`/api/share/${token}`),
   workspaces: {

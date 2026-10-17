@@ -1,45 +1,86 @@
 import { getSession } from "../../../lib/auth";
 import { canEditReport, getReport, logActivity } from "../../../lib/permissions";
-import { err, json, newId, now, type Env } from "../../../lib/util";
+import { err, json, newId, now, sha256HexBytes, type Env } from "../../../lib/util";
+import {
+  buildStorageKey,
+  decodeHeader,
+  matchesMagic,
+  MAX_ATTACHMENT_BYTES,
+  sanitizeFilename,
+} from "../../../lib/attachments";
+import {
+  checkAttachmentQuota,
+  getStorageProvider,
+  mapStorageError,
+} from "../../../lib/storage";
 
-const MAX_BYTES = 10 * 1024 * 1024;
-
-function sanitizeFilename(name: string): string {
-  return name.replace(/[/\\?%*:|"<>]/g, "_").replace(/^\.+/, "_").slice(0, 120) || "redacted";
-}
-
+/**
+ * Redacted copy upload — same raw-binary contract as the main upload route
+ * (see functions/api/reports/[id]/attachments.ts). Redacted copies are
+ * separate objects through the same storage interface; the original is
+ * preserved untouched.
+ *
+ * Client sends: Content-Type: image/png, X-Filename, X-Caption, raw PNG bytes.
+ */
 export async function onRequestPost(context: { request: Request; env: Env; params: { id: string } }) {
   const { request, env } = context;
   const session = await getSession(request, env);
   if (!session?.user) return err("Unauthorized", 401);
   const original = await env.DB.prepare("SELECT * FROM attachments WHERE id = ?").bind(context.params.id).first<{
-    id: string; report_id: string;
+    id: string; report_id: string; deleted_at: number | null;
   }>();
-  if (!original) return err("Attachment not found", 404);
+  if (!original || original.deleted_at) return err("Attachment not found", 404);
   const report = await getReport(env.DB, original.report_id);
   if (!report) return err("Attachment not found", 404);
   if (!(await canEditReport(env.DB, session.user.id, report))) return err("Forbidden", 403);
-  let form: FormData;
-  try {
-    form = await request.formData();
-  } catch {
-    return err("Invalid form data", 400);
+
+  const provider = getStorageProvider(env);
+  if (!provider) {
+    return err("Screenshot storage is not configured. Uploads are unavailable — your file was not saved.", 503);
   }
-  const file = form.get("file");
-  const caption = typeof form.get("caption") === "string" ? (form.get("caption") as string).slice(0, 500) : "";
-  if (!(file instanceof File)) return err("No file uploaded", 400);
-  if (file.type !== "image/png") return err("Redacted copies must be PNG images.", 400);
-  if (file.size > MAX_BYTES || file.size === 0) return err("Invalid file size.", 400);
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!(bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)) {
+  const contentType = (request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+  if (contentType !== "image/png") return err("Redacted copies must be PNG images.", 400);
+  const declaredLength = Number(request.headers.get("Content-Length") ?? "");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_ATTACHMENT_BYTES) {
+    return err("Each file must be 10 MB or smaller.", 413);
+  }
+  let body: ArrayBuffer;
+  try {
+    body = await request.arrayBuffer();
+  } catch {
+    return err("Could not read upload body.", 400);
+  }
+  if (body.byteLength === 0 || body.byteLength > MAX_ATTACHMENT_BYTES) {
+    return err("Invalid file size.", 400);
+  }
+  const bytes = new Uint8Array(body);
+  if (!matchesMagic(bytes, "image/png")) {
     return err("Redacted copy content is not a PNG image.", 400);
   }
+
+  const quota = await checkAttachmentQuota(env.DB, report, body.byteLength);
+  if (!quota.ok) return err(quota.message, 429);
+
+  const filename = sanitizeFilename(decodeHeader(request.headers.get("X-Filename")) || "redacted");
+  const caption = decodeHeader(request.headers.get("X-Caption")).slice(0, 500);
   const attachmentId = newId();
-  const key = `reports/${report.id}/${attachmentId}/${sanitizeFilename(file.name)}`;
-  await env.EVIDENCE.put(key, bytes, { httpMetadata: { contentType: "image/png" } });
+  const key = buildStorageKey(report.owner_id, attachmentId);
+  const sha256 = await sha256HexBytes(body);
+  try {
+    await provider.put(key, body, "image/png", {
+      ownerId: report.owner_id,
+      reportId: report.id,
+      contentType: "image/png",
+      sha256,
+      filename,
+    });
+  } catch (e) {
+    const mapped = mapStorageError(e);
+    return err(mapped.message, mapped.status);
+  }
   await env.DB.prepare(
-    "INSERT INTO attachments (id, report_id, r2_key, filename, content_type, size_bytes, caption, is_redacted, original_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"
-  ).bind(attachmentId, report.id, key, sanitizeFilename(file.name), "image/png", file.size, caption, original.id, now()).run();
-  await logActivity(env.DB, { report_id: report.id, workspace_id: report.workspace_id, actor_id: session.user.id, type: "attachment.redacted", detail: sanitizeFilename(file.name) });
+    "INSERT INTO attachments (id, report_id, r2_key, filename, content_type, size_bytes, caption, is_redacted, original_id, provider, deleted_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?)"
+  ).bind(attachmentId, report.id, key, filename, "image/png", body.byteLength, caption, original.id, provider.name, now()).run();
+  await logActivity(env.DB, { report_id: report.id, workspace_id: report.workspace_id, actor_id: session.user.id, type: "attachment.redacted", detail: filename });
   return json({ id: attachmentId }, 201);
 }

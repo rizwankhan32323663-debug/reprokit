@@ -11,7 +11,7 @@ troubleshooting report that someone else can actually reproduce.
 - Workspaces, roles, comments, activity timeline, in-app notifications
 - Share links with revocation — read-only public views, sensitive fields stripped
 - Privacy-first: no analytics, no trackers, no ads. Your report data lives in
-  your own Cloudflare D1 database and R2 bucket.
+  your own Cloudflare D1 database and KV namespace.
 
 ## Status
 
@@ -42,7 +42,7 @@ it; follow "Production setup" below.
 | Frontend | React 18 + TypeScript + Vite → static `dist/` |
 | Backend | Cloudflare Pages Functions, `functions/api/` (TypeScript, Workers runtime) |
 | Database | Cloudflare D1 (`DB` binding), migrations in `migrations/` |
-| Storage | Cloudflare R2 (`EVIDENCE` binding), private bucket |
+| Storage | Cloudflare KV (`EVIDENCE_KV` binding), private — no public URL. R2 supported via `STORAGE_PROVIDER=r2` (see "Storage & R2 migration path") |
 | Auth | better-auth 1.7.10 + `@better-auth/kysely-adapter` + `kysely-d1` |
 | PDF export | jsPDF 2.5.1 (npm, MIT — LICENSE vendored in `public/vendor/`) |
 
@@ -81,8 +81,18 @@ separately from this repo):
    repo), or run each file in `migrations/` in order via the dashboard SQL
    console. Migrations are additive-only and tracked — re-running is a no-op.
    **Never run migrations against production without a backup first** (below).
-4. **R2 bucket** — Create a private bucket named `reprokit-evidence`
-   (no public access, no public domain). Bind it as `EVIDENCE`.
+4. **KV namespace** — Create a KV namespace named `reprokit-evidence-kv`.
+   Bind it as `EVIDENCE_KV` (production + preview). KV holds ONLY attachment
+   file bytes + small metadata; D1 remains the source of truth for users,
+   reports, ownership, permissions, and quotas. KV has no public URL — every
+   download is proxied through an authenticated, permission-checked API route.
+   Replace the placeholder namespace `id` in `wrangler.toml` with the real one
+   from the dashboard (the zero-UUID there is a local-dev placeholder only,
+   like the D1 `database_id`).
+   - `STORAGE_PROVIDER` variable (optional): `kv` (default) or `r2`. Only set
+     `r2` if you have a private `reprokit-evidence` bucket bound as `EVIDENCE`
+     (R2 requires a payment method on the Cloudflare account to activate —
+     KV does not).
 5. **Secrets** (dashboard → Settings → Environment variables → Secrets):
    - `BETTER_AUTH_SECRET` — a long random secret (e.g. `openssl rand -hex 32`).
      Generate it fresh for production; never reuse the local dev value.
@@ -108,15 +118,56 @@ separately from this repo):
   `wrangler d1 execute DB --remote --file backup.sql`, then re-point the `DB`
   binding to the restored database. Verify row counts before switching traffic.
 
-**R2 (attachments / evidence)**
-- Backup: `wrangler r2 object get` per object, or
-  `rclone sync` / `aws s3 sync` with an R2 API token (S3-compatible endpoint).
-  List objects first: `wrangler r2 object list reprokit-evidence`.
-- Recovery: re-upload objects to the same keys (`reports/<id>/...`) — the
-  database stores `r2_key` per attachment, so keys must match exactly.
+**KV (attachments / evidence)**
+- Backup: list keys via `wrangler kv key list --binding EVIDENCE_KV --remote`,
+  then `wrangler kv key get <key> --binding EVIDENCE_KV --remote` per object.
+- Recovery: re-upload bytes to the same keys (`att/<ownerId>/<uuid>`) — the
+  database stores the storage key per attachment (column name `r2_key` is
+  historical; it holds the provider-agnostic key), so keys must match exactly.
+  Verify each object's SHA-256 against the metadata stored in KV before
+  considering the restore complete.
+
+## Storage & R2 migration path
+
+The storage layer is modular (`functions/lib/storage.ts`): a
+`StorageProvider` interface (`put` / `get` / `head` / `delete`) with a KV
+implementation (default) and an R2 implementation. D1 is the source of truth
+for attachment metadata (including the storage key and a `provider` column);
+providers hold only bytes + metadata.
+
+**Verified KV limits (official Cloudflare docs, checked 2026-10-17):**
+value max 25 MiB; free plan 100,000 reads/day, 1,000 writes/day, 1 GB
+storage; key max 512 bytes; metadata max 1,024 bytes. Workers Free:
+100,000 requests/day, 10 ms CPU/invocation, 128 MB memory, 100 MB max
+request body. App upload cap is 10 MiB per file — inside all of these.
+Uploads use a raw binary body (not multipart/base64) to stay inside the
+CPU/memory budget.
+
+**Quotas (enforced in D1, before any bytes are written):** per report-owner
+200 MiB + 200 files; per workspace 500 MiB. Quota exceeded → clear 429
+error, never a silent drop. KV limit errors → 429/503 with a clear message.
+
+**Billing (precise):** this deployment has NO payment method on file, so
+there is no charge mechanism. Cloudflare's stated behavior for free-tier
+overage is that operations fail hard (error), not that they bill. However,
+Cloudflare does NOT formally guarantee a $0 bill in writing for this exact
+setup — do not claim "guaranteed $0". Paid-plan KV rates ($0.50/GB-month,
+$0.50/M reads, $5.00/M writes) apply only to Paid plans, not to this Free
+deployment. If a payment method is ever added, re-check billing before
+assuming the same behavior.
+
+**Migrating to R2 later (no rebuild):**
+1. Create a private `reprokit-evidence` bucket, bind as `EVIDENCE`.
+2. Set `STORAGE_PROVIDER=r2` in the dashboard.
+3. Copy job: for each D1 attachment row, `oldProvider.get(key)` → verify
+   SHA-256 against KV metadata → `newProvider.put(key, ...)` → update the
+   row's `provider` to `'r2'`. During cutover, reads check the row's
+   `provider` field (dual-read); writes go to the new provider.
+4. Redacted copies are ordinary objects through the same interface — no
+   special handling needed.
 
 **Retention / deletion.** Account deletion removes the user row, cascades
-their reports/comments, deletes their attachments' R2 objects, and transfers
+their reports/comments, deletes their attachments' storage objects, and transfers
 or deletes workspaces they own (see `functions/api/settings/account.ts`).
 Backups are NOT automatically purged — delete old backup files on the same
 schedule you keep them.
@@ -129,9 +180,9 @@ See [SECURITY.md](SECURITY.md) for controls + test evidence. Headline:
   single-use.
 - Ownership + workspace permission checks on every endpoint; 403 without
   leaking existence.
-- R2 private; magic-bytes upload validation (PNG/JPEG/WebP, ≤10 MB);
+- KV private (no public URL); magic-bytes upload validation (PNG/JPEG/WebP, ≤10 MB);
   downloads authorized per request; revoked share links re-verified on every
-  access.
+  access. Per-owner + per-workspace storage quotas enforced before upload.
 - D1-backed rate limiting: auth endpoints 5 attempts / 15 min per IP+email;
   report creation 30/min; uploads 20/hour.
 - CSRF: SameSite=Lax session cookies + Origin/Referer check on mutations.

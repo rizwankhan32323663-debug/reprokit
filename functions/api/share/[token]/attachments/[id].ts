@@ -1,4 +1,5 @@
 import { err, sha256Hex, type Env } from "../../../../lib/util";
+import { getStorageProvider } from "../../../../lib/storage";
 
 async function resolveShare(env: Env, token: string) {
   if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
@@ -17,9 +18,11 @@ export async function onRequestGet(context: { request: Request; env: Env; params
   if (!link) return err("This share link is invalid, expired, or revoked.", 404);
   const att = await context.env.DB.prepare("SELECT * FROM attachments WHERE id = ? AND report_id = ?")
     .bind(context.params.id, link.report_id)
-    .first<{ r2_key: string; filename: string; content_type: string }>();
-  if (!att) return err("Attachment not found", 404);
-  const obj = await context.env.EVIDENCE.get(att.r2_key);
+    .first<{ r2_key: string; filename: string; content_type: string; deleted_at: number | null }>();
+  if (!att || att.deleted_at) return err("Attachment not found", 404);
+  const provider = getStorageProvider(context.env);
+  if (!provider) return err("Screenshot storage is not configured.", 503);
+  const obj = await provider.get(att.r2_key);
   if (!obj) return err("Attachment file missing", 404);
   const headers = new Headers();
   headers.set("Content-Type", att.content_type);

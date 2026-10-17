@@ -45,11 +45,13 @@ function jarFrom(setCookie) {
   return list.map((c) => c.split(";")[0]).join("; ");
 }
 
-async function req(method, path, { body, cookie, form } = {}) {
-  const headers = { Origin: BASE };
+async function req(method, path, { body, cookie, form, raw, headers: extraHeaders } = {}) {
+  const headers = { Origin: BASE, ...(extraHeaders ?? {}) };
   let payload;
   if (form) {
     payload = form; // FormData sets its own content-type
+  } else if (raw !== undefined) {
+    payload = raw; // raw bytes (Buffer) + caller-supplied Content-Type / X-* headers
   } else if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     payload = JSON.stringify(body);
@@ -178,33 +180,66 @@ check("verification identifier is hashed (not a raw token)", verRows.length === 
 r = await req("POST", "/api/auth/reset-password", { body: { token: "definitely-not-a-real-token", newPassword: "NewPass123!" } });
 check("reset-password with garbage token rejected", r.status === 400 || r.status === 401, `got ${r.status}`);
 
-// 14. Attachments: valid PNG upload, magic-bytes rejection, size limit, redacted copy
-const form = new FormData();
-form.append("file", new File([png1x1], "shot.png", { type: "image/png" }));
-form.append("caption", "e2e screenshot");
-r = await req("POST", `/api/reports/${reportId}/attachments`, { cookie: cookieA, form });
+// 14. Attachments: valid PNG upload (raw binary), magic-bytes rejection, size limit, redacted copy
+r = await req("POST", `/api/reports/${reportId}/attachments`, {
+  cookie: cookieA,
+  raw: png1x1,
+  headers: { "Content-Type": "image/png", "X-Filename": encodeURIComponent("shot.png"), "X-Caption": encodeURIComponent("e2e screenshot") },
+});
 check("PNG upload returns 201 + id", r.status === 201 && typeof r.json?.id === "string", `got ${r.status} ${r.text.slice(0, 200)}`);
 const attId = r.json?.id;
 
-const badForm = new FormData();
-badForm.append("file", new File([Buffer.from("hello, not a png")], "fake.png", { type: "image/png" }));
-r = await req("POST", `/api/reports/${reportId}/attachments`, { cookie: cookieA, form: badForm });
+r = await req("POST", `/api/reports/${reportId}/attachments`, {
+  cookie: cookieA,
+  raw: Buffer.from("hello, not a png"),
+  headers: { "Content-Type": "image/png", "X-Filename": encodeURIComponent("fake.png") },
+});
 check("fake PNG (bad magic bytes) rejected (400)", r.status === 400, `got ${r.status}`);
 
-const bigForm = new FormData();
-bigForm.append("file", new File([Buffer.alloc(10 * 1024 * 1024 + 1)], "big.png", { type: "image/png" }));
-r = await req("POST", `/api/reports/${reportId}/attachments`, { cookie: cookieA, form: bigForm });
-check("oversize upload rejected (400)", r.status === 400, `got ${r.status}`);
+r = await req("POST", `/api/reports/${reportId}/attachments`, {
+  cookie: cookieA,
+  raw: Buffer.alloc(10 * 1024 * 1024 + 1),
+  headers: { "Content-Type": "image/png", "X-Filename": encodeURIComponent("big.png") },
+});
+check("oversize upload rejected (413)", r.status === 413, `got ${r.status}`);
 
 r = await req("GET", `/api/attachments/${attId}`, { cookie: cookieA });
 check("attachment download returns 200 + PNG", r.status === 200 && (r.headers.get("content-type") || "").includes("image/png"), `got ${r.status} ${r.headers.get("content-type")}`);
 r = await req("GET", `/api/attachments/${attId}`, { cookie: cookieB });
 check("user B cannot download user A's attachment (404)", r.status === 404, `got ${r.status}`);
 
-const redForm = new FormData();
-redForm.append("file", new File([png1x1], "shot-redacted.png", { type: "image/png" }));
-r = await req("POST", `/api/attachments/${attId}/redacted`, { cookie: cookieA, form: redForm });
+r = await req("POST", `/api/attachments/${attId}/redacted`, {
+  cookie: cookieA,
+  raw: png1x1,
+  headers: { "Content-Type": "image/png", "X-Filename": encodeURIComponent("shot-redacted.png") },
+});
 check("redacted copy upload returns 201", r.status === 201, `got ${r.status} ${r.text.slice(0, 200)}`);
+const redactedId = r.json?.id;
+
+// 14b. Delete: bytes removed + D1 gate; re-download 404s; list excludes it.
+r = await req("DELETE", `/api/attachments/${redactedId}`, { cookie: cookieA });
+check("delete redacted copy returns 200", r.status === 200, `got ${r.status} ${r.text.slice(0, 200)}`);
+r = await req("GET", `/api/attachments/${redactedId}`, { cookie: cookieA });
+check("deleted attachment download returns 404 (D1 gate)", r.status === 404, `got ${r.status}`);
+r = await req("GET", `/api/reports/${reportId}`, { cookie: cookieA });
+check("report detail excludes deleted attachment",
+  r.status === 200 && !(r.json?.attachments ?? []).some((a) => a.id === redactedId) &&
+  (r.json?.attachments ?? []).some((a) => a.id === attId), `got ${r.status}`);
+
+// 14c. Persistence across logout/login: re-authenticate as A, download still works.
+r = await req("POST", "/api/auth/sign-out", { cookie: cookieA });
+const cookieA2 = (await req("POST", "/api/auth/sign-in/email", { body: { email: emailA, password: PASS } })).cookie;
+check("re-login after sign-out succeeds", cookieA2.length > 0);
+r = await req("GET", `/api/attachments/${attId}`, { cookie: cookieA2 });
+check("attachment survives logout/login (200)", r.status === 200, `got ${r.status}`);
+cookieA = cookieA2;
+
+// 14d. Storage status: KV configured, quota reported.
+r = await req("GET", "/api/storage", { cookie: cookieA });
+check("storage status reports kv + configured + quota",
+  r.status === 200 && r.json?.provider === "kv" && r.json?.configured === true &&
+  typeof r.json?.quota?.user?.usedBytes === "number" && r.json.quota.user.usedBytes >= png1x1.length,
+  `got ${r.status} ${r.text.slice(0, 200)}`);
 
 // 15. Cross-workspace isolation
 r = await req("POST", "/api/workspaces", { cookie: cookieA, body: { name: "E2E Workspace" } });

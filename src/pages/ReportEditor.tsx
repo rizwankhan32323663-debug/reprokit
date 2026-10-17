@@ -308,6 +308,14 @@ export default function ReportEditor() {
   const [assignedLabels, setAssignedLabels] = useState<{ id: string; name: string; color: string }[]>([]);
   const [newLabelName, setNewLabelName] = useState("");
   const [newLabelColor, setNewLabelColor] = useState("#6366f1");
+  const [storageStatus, setStorageStatus] = useState<{
+    provider: "kv" | "r2" | "none";
+    configured: boolean;
+    quota: {
+      user: { usedBytes: number; maxBytes: number; files: number; maxFiles: number };
+      workspace: { usedBytes: number; maxBytes: number; files: number; maxFiles: number } | null;
+    };
+  } | null>(null);
   const saveTimer = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -345,6 +353,9 @@ export default function ReportEditor() {
       setShareLinks(links.links);
       const act = await api.activity(id);
       setActivity(act.events);
+      // Storage status (quota + whether uploads are available). A failure
+      // here must not break the editor — uploads will surface their own error.
+      api.storage.status(d.report.workspace_id).then(setStorageStatus).catch(() => {});
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load report.");
     } finally {
@@ -490,6 +501,10 @@ export default function ReportEditor() {
 
   const uploadFile = async (file: File) => {
     if (!id) return;
+    if (storageStatus && !storageStatus.configured) {
+      setError("Screenshot uploads are currently unavailable — storage is not configured.");
+      return;
+    }
     if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
       setError("Only PNG, JPEG, and WebP images are supported.");
       return;
@@ -831,17 +846,38 @@ export default function ReportEditor() {
                 PNG, JPEG, or WebP, up to 10 MB each. Review every screenshot for passwords,
                 tokens, payment info, or private messages before sharing.
               </p>
+              {storageStatus ? (
+                storageStatus.configured ? (
+                  <p className="small muted">
+                    Storage used: {(storageStatus.quota.user.usedBytes / (1024 * 1024)).toFixed(1)} MiB of{" "}
+                    {(storageStatus.quota.user.maxBytes / (1024 * 1024)).toFixed(0)} MiB
+                    {" "}({storageStatus.quota.user.files} of {storageStatus.quota.user.maxFiles} files).
+                    {storageStatus.quota.workspace ? (
+                      <> Workspace: {(storageStatus.quota.workspace.usedBytes / (1024 * 1024)).toFixed(1)} MiB of{" "}
+                      {(storageStatus.quota.workspace.maxBytes / (1024 * 1024)).toFixed(0)} MiB used.</>
+                    ) : null}
+                  </p>
+                ) : (
+                  <p className="small" role="alert">
+                    Screenshot uploads are currently unavailable — storage is not configured.
+                    Your screenshots are not being saved anywhere.
+                  </p>
+                )
+              ) : null}
               <label
-                style={{ display: "block", border: "2px dashed var(--border)", borderRadius: 8, padding: "1.25rem", textAlign: "center", cursor: "pointer" }}
+                style={{ display: "block", border: "2px dashed var(--border)", borderRadius: 8, padding: "1.25rem", textAlign: "center", cursor: storageStatus && !storageStatus.configured ? "not-allowed" : "pointer", opacity: storageStatus && !storageStatus.configured ? 0.55 : 1 }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
+                  if (storageStatus && !storageStatus.configured) return;
                   const f = e.dataTransfer.files?.[0];
                   if (f) void uploadFile(f);
                 }}
               >
-                Drop an image here or click to choose one
-                <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadFile(f); e.target.value = ""; }} />
+                {storageStatus && !storageStatus.configured
+                  ? "Uploads disabled — storage is not configured"
+                  : "Drop an image here or click to choose one"}
+                <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }} disabled={!!storageStatus && !storageStatus.configured} onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadFile(f); e.target.value = ""; }} />
               </label>
               {uploadProgress ? <p className="small">{uploadProgress}</p> : null}
               <div className="thumb-grid" style={{ marginTop: "1rem" }}>

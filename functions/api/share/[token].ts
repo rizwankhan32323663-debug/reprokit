@@ -29,7 +29,7 @@ export async function onRequestGet(context: { request: Request; env: Env; params
     "SELECT id, text, note, expected_result FROM report_steps WHERE report_id = ? ORDER BY position ASC"
   ).bind(report.id as string).all();
   const attachments = await context.env.DB.prepare(
-    "SELECT id, filename, caption, is_redacted FROM attachments WHERE report_id = ? ORDER BY created_at ASC"
+    "SELECT id, filename, caption, is_redacted FROM attachments WHERE report_id = ? AND deleted_at IS NULL ORDER BY created_at ASC"
   ).bind(report.id as string).all();
   return json({
     report: {
