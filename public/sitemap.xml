@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- TODO: replace REPLACE-WITH-PRODUCTION-URL with the real production URL. -->
+<!-- TODO: replace https://reprokit-djc.pages.dev with the real production URL. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://REPLACE-WITH-PRODUCTION-URL/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
-  <url><loc>https://REPLACE-WITH-PRODUCTION-URL/login</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://REPLACE-WITH-PRODUCTION-URL/register</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://REPLACE-WITH-PRODUCTION-URL/privacy</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://REPLACE-WITH-PRODUCTION-URL/terms</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://REPLACE-WITH-PRODUCTION-URL/help</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://reprokit-djc.pages.dev/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://reprokit-djc.pages.dev/login</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://reprokit-djc.pages.dev/register</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://reprokit-djc.pages.dev/privacy</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://reprokit-djc.pages.dev/terms</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://reprokit-djc.pages.dev/help</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
 </urlset>

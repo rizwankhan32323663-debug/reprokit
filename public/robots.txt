@@ -4,4 +4,4 @@ Disallow: /app/
 Disallow: /share/
 Disallow: /invite/
 # TODO: replace with the real production URL after the Pages project is created.
-Sitemap: https://REPLACE-WITH-PRODUCTION-URL/sitemap.xml
+Sitemap: https://reprokit-djc.pages.dev/sitemap.xml
