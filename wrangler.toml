@@ -1,0 +1,30 @@
+# ReproKit — Cloudflare Pages + Functions configuration.
+# IMPORTANT: No secrets live in this file. Secrets (BETTER_AUTH_SECRET, etc.)
+# are set in the Cloudflare dashboard (Settings -> Environment variables / Secrets).
+# The D1 database_id and R2 bucket are created in the dashboard at deploy time;
+# see README.md "Production setup" for the exact steps. Do NOT invent IDs.
+
+name = "reprokit"
+compatibility_date = "2024-10-01"
+# better-auth uses node:crypto (scrypt) — requires the Node.js compat flag.
+# The production Pages project must have the same flag (dashboard setting).
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Overridden in production by the dashboard (set to the real site URL).
+BETTER_AUTH_URL = "http://localhost:8788"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "reprokit-db"
+migrations_dir = "migrations"
+# Local-dev placeholder ONLY (wrangler requires the field even for --local).
+# The Cloudflare dashboard assigns the REAL database_id when the database is
+# created at deploy time. NEVER use this placeholder value in production —
+# it is not a real database ID.
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "EVIDENCE"
+bucket_name = "reprokit-evidence"
+# Bucket is created in the dashboard at deploy time. Private: no public access.
