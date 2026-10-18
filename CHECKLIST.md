@@ -44,6 +44,9 @@ verifies the production URL.
 - [x] Tests: `tsc` clean, `vite build` clean, unit 42/42, E2E 47/47 (local)
 - [x] Docs: README, CHECKLIST, TESTING, SECURITY, `.env.example`
 - [x] No secrets in repo (scanned); `.dev.vars` gitignored
+- [x] Health endpoint `GET /api/health` — presence booleans only, never throws, no auth (diagnoses binding/config issues on production)
+- [x] Redesign: design system (Inter + mono metadata, 8px base, 1024px/640px breakpoints, 44px targets, skip link, reduced-motion, focus rings), CSS/HTML landing mockup, honest trust strip, pricing-contrast block (public competitor prices), dashboard sidebar + card list, report two-pane + sticky bar, editor sticky preview + as-recipient toggle + drag-reorder steps + blur redaction + before/after toggle, ConfirmModal for destructive actions, toasts, skeletons, empty states. No copied competitor assets/copy, no fake testimonials/logos/stats.
+- [x] Reports list API returns `attachment_count` (live attachments only) for dashboard cards
 
 ## Pending (deploy phase — lead)
 

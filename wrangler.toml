@@ -18,11 +18,11 @@ BETTER_AUTH_URL = "http://localhost:8788"
 binding = "DB"
 database_name = "reprokit-db"
 migrations_dir = "migrations"
-# Local-dev placeholder ONLY (wrangler requires the field even for --local).
-# The Cloudflare dashboard assigns the REAL database_id when the database is
-# created at deploy time. NEVER use this placeholder value in production —
-# it is not a real database ID.
-database_id = "00000000-0000-0000-0000-000000000000"
+# Real production D1 database ID (Cloudflare dashboard → D1 → reprokit-db).
+# This MUST be the real ID: a placeholder here breaks every D1 query at
+# runtime (auth, dashboard, reports) with a 500, because the Worker binding
+# resolves by this ID. Local dev uses miniflare's local D1 regardless.
+database_id = "712a9607-029e-47ff-98f4-83f0f171b9b2"
 
 [[r2_buckets]]
 binding = "EVIDENCE"

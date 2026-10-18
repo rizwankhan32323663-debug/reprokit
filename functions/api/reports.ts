@@ -46,7 +46,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     sort === "title_asc" ? "r.title ASC" : "r.updated_at DESC";
 
   const rows = await env.DB.prepare(
-    `SELECT r.*, u.name AS owner_name FROM reports r JOIN user u ON u.id = r.owner_id
+    `SELECT r.*, u.name AS owner_name,
+     (SELECT COUNT(*) FROM attachments a WHERE a.report_id = r.id AND a.deleted_at IS NULL) AS attachment_count
+     FROM reports r JOIN user u ON u.id = r.owner_id
      WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`
   ).bind(...params, limit, offset).all();
   const total = await env.DB.prepare(

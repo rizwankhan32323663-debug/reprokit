@@ -78,6 +78,11 @@ export default function ShareView() {
       <p className="small muted">
         This is a read-only shared copy. Internal details (owner, workspace, comments, activity) are not included.
       </p>
+      <footer style={{ marginTop: "2rem", paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
+        <p className="small muted">
+          Made with <a href="/">ReproKit</a> — <a href="/register">create your own report</a>
+        </p>
+      </footer>
     </main>
   );
 }

@@ -61,9 +61,23 @@ npm run build                # tsc + vite production build
 ```
 
 Local auth needs `.dev.vars` with a `BETTER_AUTH_SECRET` (see
-`.env.example`). It is gitignored — never commit it. The local D1
-`database_id` in `wrangler.toml` is a zero-UUID placeholder for local dev
-only; the dashboard assigns the real ID at deploy time.
+`.env.example`). It is gitignored — never commit it. `wrangler.toml` carries
+the real production D1 `database_id` (Pages resolves the `DB` binding by
+this ID); local dev still uses a separate local D1 database.
+
+## Health endpoint
+
+`GET /api/health` — no auth required, never throws, returns only presence
+booleans (never any secret or env value):
+
+```json
+{ "ok": true, "db": true, "kv": true, "secretSet": true, "authUrlSet": true, "storageProvider": "kv", "time": "2026-10-17T20:35:09.680Z" }
+```
+
+Use it after a deploy to verify the runtime bindings (`db`, `kv`,
+`secretSet`, `authUrlSet`) before running live login/upload tests. If
+`db` is `false`, the D1 binding is not reaching the Functions runtime —
+check `wrangler.toml` `database_id` and the dashboard binding.
 
 ## Production setup (Cloudflare dashboard)
 

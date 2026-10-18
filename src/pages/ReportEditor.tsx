@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type Attachment, type ReportDetail, type Step } from "../lib/api";
-import { Alert, EmptyState, Field, Modal, SeverityBadge, StatusBadge } from "../components/ui";
+import { Alert, ConfirmModal, EmptyState, Field, Modal, SeverityBadge, StatusBadge, useToast } from "../components/ui";
 import { assessQuality } from "../lib/quality";
 import { collectEnvironment, type EnvField } from "../lib/env";
 import { applyRedactions, type Rect } from "../lib/redact";
@@ -74,8 +74,10 @@ function RedactionModal({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [rects, setRects] = useState<Rect[]>([]);
+  const [blurs, setBlurs] = useState<Rect[]>([]);
+  const [showRedacted, setShowRedacted] = useState(true);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [tool, setTool] = useState<"redact" | "rect" | "arrow" | "text">("redact");
+  const [tool, setTool] = useState<"redact" | "blur" | "rect" | "arrow" | "text">("redact");
   const [drawing, setDrawing] = useState<{ x: number; y: number } | null>(null);
   const [textValue, setTextValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -92,7 +94,7 @@ function RedactionModal({
       const s = Math.min(1, maxW / img.naturalWidth);
       canvas.width = Math.round(img.naturalWidth * s);
       canvas.height = Math.round(img.naturalHeight * s);
-      draw(img, canvas, [], []);
+      draw(img, canvas, [], [], []);
     };
     img.src = api.reports.attachments.downloadUrl(attachment.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -102,7 +104,8 @@ function RedactionModal({
     img: HTMLImageElement,
     canvas: HTMLCanvasElement,
     r: Rect[],
-    ann: Annotation[]
+    ann: Annotation[],
+    b: Rect[]
   ) => {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -111,6 +114,22 @@ function RedactionModal({
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#000";
     for (const rect of r) ctx.fillRect(rect.x * s, rect.y * s, rect.w * s, rect.h * s);
+    // Blur regions: redraw the region's own pixels through a blur filter.
+    for (const rect of b) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rect.x * s, rect.y * s, rect.w * s, rect.h * s);
+      ctx.clip();
+      try {
+        ctx.filter = "blur(12px)";
+      } catch {
+        // Canvas filter unsupported — region stays unblurred in preview;
+        // the black redact tool always works.
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+      ctx.filter = "none";
+    }
     ctx.strokeStyle = "#e11d48";
     ctx.fillStyle = "#e11d48";
     ctx.lineWidth = 2;
@@ -137,11 +156,17 @@ function RedactionModal({
     }
   };
 
-  const redraw = (r: Rect[], ann: Annotation[]) => {
+  const redraw = (r: Rect[], ann: Annotation[], b: Rect[]) => {
     const img = imgRef.current;
     const canvas = canvasRef.current;
-    if (img && canvas) draw(img, canvas, r, ann);
+    if (img && canvas) draw(img, canvas, showRedacted ? r : [], ann, showRedacted ? b : []);
   };
+
+  // Re-render the canvas when the before/after toggle changes.
+  useEffect(() => {
+    redraw(rects, annotations, blurs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showRedacted]);
 
   // Convert display coords to image-pixel coords.
   const toImage = (e: React.PointerEvent) => {
@@ -160,7 +185,7 @@ function RedactionModal({
       const text = textValue.trim() || "Note";
       const next = [...annotations, { kind: "text" as const, x1: p.x, y1: p.y, x2: p.x, y2: p.y, text }];
       setAnnotations(next);
-      redraw(rects, next);
+      redraw(rects, next, blurs);
       return;
     }
     setDrawing(toImage(e));
@@ -180,11 +205,15 @@ function RedactionModal({
     if (tool === "redact") {
       const next = [...rects, { x, y, w, h }];
       setRects(next);
-      redraw(next, annotations);
+      redraw(next, annotations, blurs);
+    } else if (tool === "blur") {
+      const next = [...blurs, { x, y, w, h }];
+      setBlurs(next);
+      redraw(rects, annotations, next);
     } else {
       const next = [...annotations, { kind: tool, x1: x, y1: y, x2: x + w, y2: y + h }];
       setAnnotations(next);
-      redraw(rects, next);
+      redraw(rects, next, blurs);
     }
     setDrawing(null);
   };
@@ -206,6 +235,21 @@ function RedactionModal({
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const redacted = applyRedactions(imageData, rects);
       ctx.putImageData(new ImageData(redacted.data, redacted.width, redacted.height), 0, 0);
+      // Blur regions on the full-resolution canvas.
+      for (const br of blurs) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(br.x, br.y, br.w, br.h);
+        ctx.clip();
+        try {
+          ctx.filter = "blur(12px)";
+        } catch {
+          // Canvas filter unsupported — region stays unblurred.
+        }
+        ctx.drawImage(img, 0, 0);
+        ctx.restore();
+        ctx.filter = "none";
+      }
       ctx.strokeStyle = "#e11d48";
       ctx.fillStyle = "#e11d48";
       ctx.lineWidth = Math.max(2, img.naturalWidth / 400);
@@ -248,14 +292,22 @@ function RedactionModal({
         copy before sharing. The original is preserved.
       </p>
       {error ? <Alert kind="error">{error}</Alert> : null}
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        {(["redact", "rect", "arrow", "text"] as const).map((t) => (
+      <div className="redact-toolbar">
+        {(["redact", "blur", "rect", "arrow", "text"] as const).map((t) => (
           <button key={t} className={`btn btn-sm ${tool === t ? "btn-primary" : ""}`} onClick={() => setTool(t)}>
-            {t === "redact" ? "⬛ Redact" : t === "rect" ? "▭ Rectangle" : t === "arrow" ? "➜ Arrow" : "T Text"}
+            {t === "redact" ? "Redact" : t === "blur" ? "Blur" : t === "rect" ? "Rectangle" : t === "arrow" ? "Arrow" : "Text"}
           </button>
         ))}
-        <button className="btn btn-sm" onClick={() => { setRects(rects.slice(0, -1)); redraw(rects.slice(0, -1), annotations); }}>Undo redaction</button>
-        <button className="btn btn-sm" onClick={() => { setRects([]); setAnnotations([]); redraw([], []); }}>Clear all</button>
+        <button className="btn btn-sm" onClick={() => { setRects(rects.slice(0, -1)); redraw(rects.slice(0, -1), annotations, blurs); }}>Undo redaction</button>
+        <button className="btn btn-sm" onClick={() => { setRects([]); setBlurs([]); setAnnotations([]); redraw([], [], []); }}>Clear all</button>
+      </div>
+      <div className="segmented" role="tablist" aria-label="Preview redaction">
+        <button type="button" role="tab" aria-selected={!showRedacted} className={`segmented-btn ${!showRedacted ? "active" : ""}`} onClick={() => setShowRedacted(false)}>
+          Before
+        </button>
+        <button type="button" role="tab" aria-selected={showRedacted} className={`segmented-btn ${showRedacted ? "active" : ""}`} onClick={() => setShowRedacted(true)}>
+          After
+        </button>
       </div>
       {tool === "text" ? (
         <input className="input" value={textValue} onChange={(e) => setTextValue(e.target.value)} placeholder="Text label (click on the image to place it)" />
@@ -317,6 +369,16 @@ export default function ReportEditor() {
     };
   } | null>(null);
   const saveTimer = useRef<number | null>(null);
+  const dragIndex = useRef<number | null>(null);
+  const [recipientPreview, setRecipientPreview] = useState(false);
+  const [confirmRemoveAttachment, setConfirmRemoveAttachment] = useState<Attachment | null>(null);
+  const { toast } = useToast();
+
+  // Sticky bottom action bar spacing on small screens.
+  useEffect(() => {
+    document.body.classList.add("has-bottom-bar");
+    return () => document.body.classList.remove("has-bottom-bar");
+  }, []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -495,6 +557,15 @@ export default function ReportEditor() {
     if (j < 0 || j >= steps.length) return;
     const next = [...steps];
     [next[i], next[j]] = [next[j], next[i]];
+    setSteps(next);
+    setDirty(true);
+  };
+
+  const reorderStep = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= steps.length) return;
+    const next = [...steps];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
     setSteps(next);
     setDirty(true);
   };
@@ -777,7 +848,35 @@ export default function ReportEditor() {
             <h2>Reproduction steps</h2>
             <p className="small muted">One concrete action per step, in order. Steps are numbered automatically.</p>
             {steps.map((s, i) => (
-              <div className="step-row" key={s.id || i}>
+              <div
+                className="step-row"
+                key={s.id || i}
+                draggable
+                onDragStart={(e) => {
+                  dragIndex.current = i;
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragIndex.current !== null) {
+                    reorderStep(dragIndex.current, i);
+                    dragIndex.current = null;
+                  }
+                }}
+                onDragEnd={() => {
+                  dragIndex.current = null;
+                }}
+              >
+                <button
+                  type="button"
+                  className="drag-handle"
+                  aria-label={`Drag to reorder step ${i + 1}`}
+                  title="Drag to reorder"
+                  onClick={(e) => e.preventDefault()}
+                >
+                  ≡
+                </button>
                 <span className="step-num">{i + 1}.</span>
                 <div style={{ flex: 1 }}>
                   <input
@@ -891,7 +990,7 @@ export default function ReportEditor() {
                       {a.is_redacted ? " (redacted copy)" : ""}
                       <div style={{ display: "flex", gap: "0.25rem", marginTop: "0.25rem", flexWrap: "wrap" }}>
                         <button className="btn btn-sm" onClick={() => setRedactTarget(a)}>Redact / annotate</button>
-                        <button className="btn btn-sm" onClick={async () => { if (window.confirm("Remove this attachment?")) { await api.reports.attachments.remove(a.id); await load(); } }}>Remove</button>
+                        <button className="btn btn-sm" onClick={() => setConfirmRemoveAttachment(a)}>Remove</button>
                       </div>
                     </div>
                   </div>
@@ -913,7 +1012,7 @@ export default function ReportEditor() {
                   </Field>
                   <button className="btn btn-primary" onClick={() => void createShare()}>Create share link</button>
                 </div>
-                {shareUrl ? <p style={{ wordBreak: "break-all" }}><a href={shareUrl}>{shareUrl}</a> <button className="btn btn-sm" onClick={() => void copyTextWithFallback(shareUrl)}>Copy</button></p> : null}
+                {shareUrl ? <p style={{ wordBreak: "break-all" }}><a href={shareUrl}>{shareUrl}</a> <button className="btn btn-sm" onClick={async () => { const ok = await copyTextWithFallback(shareUrl); toast(ok ? "Share link copied." : "Copy failed — clipboard blocked.", ok ? "success" : "error"); }}>Copy</button></p> : null}
                 <ul>
                   {shareLinks.map((l) => (
                     <li key={l.id}>
@@ -993,8 +1092,18 @@ export default function ReportEditor() {
             ) : null}
           </section>
 
-          <section className="card">
-            <h2>Live preview</h2>
+          <section className="card editor-preview">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0 }}>Live preview</h2>
+              <div className="segmented" role="tablist" aria-label="Preview mode">
+                <button type="button" role="tab" aria-selected={!recipientPreview} className={`segmented-btn ${!recipientPreview ? "active" : ""}`} onClick={() => setRecipientPreview(false)}>
+                  Editor
+                </button>
+                <button type="button" role="tab" aria-selected={recipientPreview} className={`segmented-btn ${recipientPreview ? "active" : ""}`} onClick={() => setRecipientPreview(true)}>
+                  As recipient
+                </button>
+              </div>
+            </div>
             <div className="print-area" style={{ border: "1px solid var(--border-soft)", borderRadius: 8, padding: "1rem" }}>
               <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                 <StatusBadge status={draft.status} />
@@ -1008,6 +1117,19 @@ export default function ReportEditor() {
                   {steps.map((s, i) => <li key={i}>{s.text || <em>(empty step)</em>}</li>)}
                 </ol>
               ) : <p className="muted">No steps yet.</p>}
+              {recipientPreview && detail?.attachments.length ? (
+                <>
+                  <h3>Evidence</h3>
+                  <div className="thumb-grid">
+                    {detail.attachments.map((a) => (
+                      <div className="thumb" key={a.id}>
+                        <img src={api.reports.attachments.downloadUrl(a.id)} alt={a.caption || a.filename} />
+                        <div className="thumb-body small">{a.caption || a.filename}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
           </section>
 
@@ -1030,6 +1152,26 @@ export default function ReportEditor() {
           attachment={redactTarget}
           onClose={() => setRedactTarget(null)}
           onSaved={async () => { setRedactTarget(null); setNotice("Redacted copy saved as a new attachment."); await load(); }}
+        />
+      ) : null}
+
+      <div className="bottom-bar no-print">
+        <button className="btn btn-primary" onClick={() => void save(true)}>Save report</button>
+        {!isNew && detail ? <Link className="btn" to={`/app/reports/${detail.report.id}`}>View</Link> : null}
+      </div>
+
+      {confirmRemoveAttachment ? (
+        <ConfirmModal
+          title="Remove this attachment?"
+          body={`Remove "${confirmRemoveAttachment.caption || confirmRemoveAttachment.filename}" from this report? The stored file is deleted and cannot be recovered.`}
+          confirmLabel="Remove attachment"
+          onConfirm={async () => {
+            const a = confirmRemoveAttachment;
+            setConfirmRemoveAttachment(null);
+            await api.reports.attachments.remove(a.id);
+            await load();
+          }}
+          onClose={() => setConfirmRemoveAttachment(null)}
         />
       ) : null}
     </main>

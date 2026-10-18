@@ -220,6 +220,7 @@ export interface Report {
   created_at: number;
   updated_at: number;
   owner_name?: string;
+  attachment_count?: number;
 }
 
 export interface Step {

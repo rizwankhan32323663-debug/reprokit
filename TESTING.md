@@ -5,7 +5,7 @@
 ```bash
 npm run db:migrate:local   # local D1 migrations (repeatable)
 npm run pages:dev          # local server on http://localhost:8788
-npm run test:unit          # 19 checks, pure logic
+npm run test:unit          # 42 checks, pure logic
 npm run test:e2e           # 47 checks, full API against local server
 npm run build              # tsc --noEmit + vite build
 ```
@@ -19,6 +19,10 @@ npm run build              # tsc --noEmit + vite build
 | Unit tests | ✅ **42/42 passed** (19 original + 23 storage-helper: magic bytes, allowlist, size cap, filename sanitization, key generation, quotas) |
 | E2E tests | ✅ **47/47 passed** (41 original + 6 new: delete 200, deleted → 404 D1 gate, detail excludes deleted, re-login, persistence after logout/login, storage status KV) |
 | Migrations (local) | ✅ 0001–0004 applied; 2nd run = "No migrations to apply" |
+
+> Note: on a fresh checkout the local D1 database is empty — E2E fails
+> with 500s ("no such table") until `npm run db:migrate:local` is run
+> once. Always apply local migrations before `test:e2e`.
 
 Real bugs found and fixed by these tests (not fake passes):
 - better-auth adapter import path (`better-auth/adapters/kysely` → `@better-auth/kysely-adapter`, separate package) + `kysely` version bump 0.28.5 → 0.28.17 (peer dep).

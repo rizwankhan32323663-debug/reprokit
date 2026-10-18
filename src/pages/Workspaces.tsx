@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ApiError, api, type Workspace, type WorkspaceDetail } from "../lib/api";
 import { useAuth } from "../auth";
-import { Alert, Field } from "../components/ui";
+import { Alert, ConfirmModal, Field } from "../components/ui";
 
 export default function Workspaces() {
   const { user } = useAuth();
@@ -13,6 +13,7 @@ export default function Workspaces() {
   const [inviteLink, setInviteLink] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState<{ id: string; name: string } | null>(null);
 
   const load = async () => {
     try {
@@ -67,7 +68,6 @@ export default function Workspaces() {
 
   const removeMember = async (userId: string) => {
     if (!selected) return;
-    if (!window.confirm("Remove this member from the workspace?")) return;
     try {
       await api.workspaces.removeMember(selected.workspace.id, userId);
       await open(selected.workspace.id);
@@ -136,7 +136,7 @@ export default function Workspaces() {
                   <li key={m.user_id}>
                     {m.name} ({m.email}) — {m.role}
                     {m.user_id !== user?.id && selected.workspace.owner_id === user?.id ? (
-                      <button className="btn btn-sm" style={{ marginLeft: "0.5rem" }} onClick={() => void removeMember(m.user_id)}>Remove</button>
+                      <button className="btn btn-sm" style={{ marginLeft: "0.5rem" }} onClick={() => setConfirmRemove({ id: m.user_id, name: m.name })}>Remove</button>
                     ) : null}
                   </li>
                 ))}
@@ -174,6 +174,20 @@ export default function Workspaces() {
           )}
         </section>
       </div>
+
+      {confirmRemove && selected ? (
+        <ConfirmModal
+          title="Remove this member?"
+          body={`Remove ${confirmRemove.name} from "${selected.workspace.name}"? They will lose access to the workspace's reports.`}
+          confirmLabel="Remove member"
+          onConfirm={async () => {
+            const target = confirmRemove;
+            setConfirmRemove(null);
+            await removeMember(target.id);
+          }}
+          onClose={() => setConfirmRemove(null)}
+        />
+      ) : null}
     </main>
   );
 }
