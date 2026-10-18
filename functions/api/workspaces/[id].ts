@@ -21,7 +21,7 @@ export async function onRequestGet(context: { request: Request; env: Env; params
   const role = await memberRole(context.env.DB, ws.id, session.user.id);
   if (!role) return err("Not found", 404);
   const members = await context.env.DB.prepare(
-    `SELECT m.user_id, m.role, u.name, u.email FROM workspace_members m JOIN user u ON u.id = m.user_id
+    `SELECT m.user_id, m.role, COALESCE(u.name, 'Owner') AS name, COALESCE(u.email, '') AS email FROM workspace_members m LEFT JOIN user u ON u.id = m.user_id
      WHERE m.workspace_id = ? ORDER BY m.created_at ASC`
   ).bind(ws.id).all();
   const invites = await context.env.DB.prepare(

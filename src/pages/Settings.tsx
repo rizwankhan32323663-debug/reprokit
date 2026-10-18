@@ -1,20 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "../lib/api";
 import { useAuth } from "../auth";
 import { Alert, Field } from "../components/ui";
 import { downloadBlob } from "../lib/format";
 
 export default function Settings() {
-  const { user, refresh, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user, refresh } = useAuth();
   const [name, setName] = useState(user?.name || "");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">((localStorage.getItem("reprokit-theme") as "light" | "dark") || "light");
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (user) setName(user.name);
@@ -30,24 +25,6 @@ export default function Settings() {
       setMsg("Profile saved.");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save profile.");
-    }
-  };
-
-  const changePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setMsg("");
-    if (newPassword.length < 8) {
-      setError("New password must be at least 8 characters.");
-      return;
-    }
-    try {
-      await api.changePassword(currentPassword, newPassword);
-      setCurrentPassword("");
-      setNewPassword("");
-      setMsg("Password changed. Other sessions were signed out.");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to change password.");
     }
   };
 
@@ -73,20 +50,6 @@ export default function Settings() {
     }
   };
 
-  const deleteAccount = async () => {
-    if (!deleteConfirm) {
-      setDeleteConfirm(true);
-      return;
-    }
-    try {
-      await api.settings.deleteAccount();
-      await logout();
-      navigate("/");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Account deletion failed.");
-    }
-  };
-
   return (
     <main className="page narrow">
       <h1>Settings</h1>
@@ -99,23 +62,7 @@ export default function Settings() {
           <Field label="Full name">
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
           </Field>
-          <Field label="Email">
-            <input className="input" value={user?.email || ""} disabled />
-          </Field>
           <button className="btn btn-primary" type="submit">Save profile</button>
-        </form>
-      </section>
-
-      <section className="card">
-        <h2>Password</h2>
-        <form onSubmit={changePassword}>
-          <Field label="Current password">
-            <input className="input" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required autoComplete="current-password" />
-          </Field>
-          <Field label="New password" hint="At least 8 characters.">
-            <input className="input" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required autoComplete="new-password" />
-          </Field>
-          <button className="btn btn-primary" type="submit">Change password</button>
         </form>
       </section>
 
@@ -131,24 +78,6 @@ export default function Settings() {
         <h2>Your data</h2>
         <p className="small muted">Download a JSON copy of your reports, comments, and workspace memberships.</p>
         <button className="btn" onClick={() => void exportData()}>Export my data (JSON)</button>
-      </section>
-
-      <section className="card">
-        <h2>Delete account</h2>
-        <p className="small muted">
-          Deleting your account permanently removes your account, reports, comments, and
-          attachments, and removes you from your workspaces. Workspaces you own are
-          transferred to remaining members where possible. This cannot be undone.
-        </p>
-        {deleteConfirm ? (
-          <div>
-            <Alert kind="warning">Are you sure? This permanently deletes your account and data.</Alert>
-            <button className="btn btn-danger" onClick={() => void deleteAccount()}>Yes, delete my account</button>{" "}
-            <button className="btn" onClick={() => setDeleteConfirm(false)}>Cancel</button>
-          </div>
-        ) : (
-          <button className="btn btn-danger" onClick={() => setDeleteConfirm(true)}>Delete my account</button>
-        )}
       </section>
     </main>
   );

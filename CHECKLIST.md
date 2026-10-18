@@ -1,6 +1,6 @@
 # ReproKit — Build checklist
 
-Last updated: 2026-10-17 (local verification). Production deployment is a
+Last updated: 2026-10-18 (local verification). Production deployment is a
 separate step (dashboard) — nothing here is claimed live until the lead
 verifies the production URL.
 
@@ -8,19 +8,25 @@ verifies the production URL.
 
 - [x] Repo inspected; existing README-only state preserved (commit `6f49f7b`)
 - [x] Scaffold: React + TS + Vite, `tsconfig`, `wrangler.toml`, `.gitignore`, MIT LICENSE
-- [x] Auth: better-auth 1.7.10 + `@better-auth/kysely-adapter` + `kysely-d1`,
-      verified Workers/D1 compatible (needs `nodejs_compat` flag)
-- [x] D1 migrations 0001 (better-auth tables) / 0002 (app tables) / 0003 (assignee)
+- [x] **No-login mode (2026-10-18, user order):** login system REMOVED —
+      better-auth + `@better-auth/kysely-adapter` deleted from deps/lockfile,
+      `functions/api/auth/` deleted, `getSession` always returns the fixed
+      owner (`owner`); all ownership/permission checks work unchanged as
+      single-user; `LEFT JOIN` + `COALESCE('Owner')` on user-table joins;
+      `[[r2_buckets]]` removed from `wrangler.toml` (unused); old auth pages
+      (Login/Register/Forgot/Reset) deleted, `/login` etc. redirect to `/app`
+- [x] D1 migrations 0001 (auth tables, legacy) / 0002 (app tables) / 0003 (assignee)
       / 0004 (attachment soft-delete + provider tag)
-      — applied locally, repeatable (2nd run = no-op)
+      — applied locally, repeatable (2nd run = no-op); no new migration needed
 - [x] Backend: all endpoints (reports, steps, comments, attachments + redacted
       copies, share links, workspaces/members/invites, labels, notifications,
-      activity, dashboard stats, settings incl. export + account deletion)
-- [x] Frontend: landing, signup/login/forgot/reset, dashboard, report editor
+      activity, dashboard stats, settings incl. profile + export, health probe)
+- [x] Frontend: landing (direct CTAs, no login), dashboard, report editor
       (autosave, steps editor, attachments + redaction modal, live preview,
       quality panel, MD/PDF/JSON/copy/print exports, share, comments, activity,
-      labels + assignee), report view, public share view, settings, workspaces,
-      invite accept, privacy/terms/help, 404, light/dark themes
+      labels + assignee), report view, public share view, settings (profile +
+      appearance + data export), workspaces, invite accept, privacy/terms/help,
+      404, light/dark themes
 - [x] Permissions on every endpoint (ownership + workspace checks, 403 w/o leak)
 - [x] Storage: modular `StorageProvider` (KV default, R2 behind `STORAGE_PROVIDER`);
       KV private (no public URL), raw-binary uploads, magic-bytes validation,

@@ -5,14 +5,12 @@ import type { Env } from "../lib/util";
  * booleans, NEVER any secret or env value. No auth required. This endpoint
  * must never throw: every check is wrapped in try/catch and reports false
  * on failure. It exists so a production misconfiguration (e.g. a missing
- * binding or secret) can be diagnosed without reading server logs.
+ * binding) can be diagnosed without reading server logs.
  */
 interface HealthResult {
   ok: boolean;
   db: boolean;
   kv: boolean;
-  secretSet: boolean;
-  authUrlSet: boolean;
   storageProvider: string;
   time: string;
 }
@@ -23,8 +21,6 @@ export async function onRequestGet(context: { env: Env }) {
     ok: false,
     db: false,
     kv: false,
-    secretSet: false,
-    authUrlSet: false,
     storageProvider: "none",
     time: new Date().toISOString(),
   };
@@ -48,18 +44,6 @@ export async function onRequestGet(context: { env: Env }) {
       result.kv = false;
     }
     try {
-      result.secretSet =
-        typeof env.BETTER_AUTH_SECRET === "string" && env.BETTER_AUTH_SECRET.length > 0;
-    } catch {
-      result.secretSet = false;
-    }
-    try {
-      result.authUrlSet =
-        typeof env.BETTER_AUTH_URL === "string" && env.BETTER_AUTH_URL.length > 0;
-    } catch {
-      result.authUrlSet = false;
-    }
-    try {
       const p =
         typeof env.STORAGE_PROVIDER === "string" && env.STORAGE_PROVIDER
           ? env.STORAGE_PROVIDER
@@ -68,7 +52,7 @@ export async function onRequestGet(context: { env: Env }) {
     } catch {
       result.storageProvider = "none";
     }
-    result.ok = result.db && result.secretSet && result.authUrlSet;
+    result.ok = result.db && result.kv;
   } catch {
     // Never throw: report failure booleans.
     result.ok = false;

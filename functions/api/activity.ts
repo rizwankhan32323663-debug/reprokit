@@ -13,7 +13,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     if (!report) return err("Report not found", 404);
     if (!(await canViewReport(context.env.DB, session.user.id, report))) return err("Not found", 404);
     const rows = await context.env.DB.prepare(
-      `SELECT a.*, u.name AS actor_name FROM activity_events a JOIN user u ON u.id = a.actor_id
+      `SELECT a.*, COALESCE(u.name, 'Owner') AS actor_name FROM activity_events a LEFT JOIN user u ON u.id = a.actor_id
        WHERE a.report_id = ? ORDER BY a.created_at DESC LIMIT 100`
     ).bind(reportId).all();
     return json({ events: rows.results ?? [] });
@@ -24,14 +24,14 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     ).bind(workspaceId, session.user.id).first();
     if (!role) return err("Not found", 404);
     const rows = await context.env.DB.prepare(
-      `SELECT a.*, u.name AS actor_name FROM activity_events a JOIN user u ON u.id = a.actor_id
+      `SELECT a.*, COALESCE(u.name, 'Owner') AS actor_name FROM activity_events a LEFT JOIN user u ON u.id = a.actor_id
        WHERE a.workspace_id = ? ORDER BY a.created_at DESC LIMIT 100`
     ).bind(workspaceId).all();
     return json({ events: rows.results ?? [] });
   }
   // Own activity: events the user caused or on their reports.
   const rows = await context.env.DB.prepare(
-    `SELECT a.*, u.name AS actor_name FROM activity_events a JOIN user u ON u.id = a.actor_id
+    `SELECT a.*, COALESCE(u.name, 'Owner') AS actor_name FROM activity_events a LEFT JOIN user u ON u.id = a.actor_id
      WHERE a.actor_id = ? OR a.report_id IN (SELECT id FROM reports WHERE owner_id = ?)
      ORDER BY a.created_at DESC LIMIT 100`
   ).bind(session.user.id, session.user.id).all();

@@ -15,6 +15,7 @@ import {
   MAX_USER_STORAGE_BYTES,
   sanitizeFilename,
 } from "../functions/lib/attachments.ts";
+import { FIXED_OWNER_ID, FIXED_OWNER_NAME, getSession } from "../functions/lib/auth.ts";
 import type { Report, Step } from "../src/lib/api.ts";
 
 let passed = 0;
@@ -121,6 +122,19 @@ const fullSteps: Step[] = [
 
   check("user quota is 200 MiB", MAX_USER_STORAGE_BYTES === 200 * 1024 * 1024);
   check("user file-count quota is 200", MAX_USER_ATTACHMENTS === 200);
+}
+
+// --- Single-user no-login mode: getSession always returns the fixed owner ---
+{
+  check("fixed owner id is 'owner'", FIXED_OWNER_ID === "owner");
+  check("fixed owner name is 'Owner'", FIXED_OWNER_NAME === "Owner");
+  // Pass an env with NO DB binding: getSession must not read D1 (it would throw).
+  const s1 = await getSession(new Request("http://localhost/api/me"), {} as never);
+  check("getSession returns the fixed owner id", s1.user.id === "owner");
+  check("getSession returns the fixed owner name", s1.user.name === "Owner");
+  check("getSession owner email is empty", s1.user.email === "");
+  const s2 = await getSession(new Request("http://localhost/api/reports", { method: "POST" }), { DB: undefined } as never);
+  check("getSession is request-independent (no cookies/sessions)", s2.user.id === s1.user.id);
 }
 
 console.log(`\nUnit: ${passed}/${passed + failed} passed${failed ? ` — ${failed} FAILURES` : ""}`);

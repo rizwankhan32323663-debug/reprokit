@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../lib/api";
 import { Alert } from "../components/ui";
 
@@ -31,9 +31,6 @@ export default function InviteAccept() {
       <button className="btn btn-primary" disabled={busy} onClick={() => void accept()}>
         {busy ? "Joining…" : "Accept invite"}
       </button>
-      <p style={{ marginTop: "1rem" }}>
-        <Link to="/login">Log in first</Link> if you are not signed in — invites are tied to your account email.
-      </p>
     </main>
   );
 }

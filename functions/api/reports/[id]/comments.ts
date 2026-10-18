@@ -10,7 +10,7 @@ export async function onRequestGet(context: { request: Request; env: Env; params
   if (!report) return err("Report not found", 404);
   if (!(await canViewReport(context.env.DB, session.user.id, report))) return err("Not found", 404);
   const comments = await context.env.DB.prepare(
-    "SELECT c.*, u.name AS author_name FROM comments c JOIN user u ON u.id = c.author_id WHERE report_id = ? ORDER BY created_at ASC"
+    "SELECT c.*, COALESCE(u.name, 'Owner') AS author_name FROM comments c LEFT JOIN user u ON u.id = c.author_id WHERE report_id = ? ORDER BY created_at ASC"
   ).bind(report.id).all();
   return json({ comments: comments.results ?? [] });
 }

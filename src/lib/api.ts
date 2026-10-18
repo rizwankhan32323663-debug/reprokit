@@ -36,32 +36,6 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
 
 export const api = {
   me: () => req<{ user: User }>("/api/me"),
-  register: (name: string, email: string, password: string) =>
-    req("/api/auth/sign-up/email", {
-      method: "POST",
-      body: JSON.stringify({ name, email, password }),
-    }),
-  login: (email: string, password: string) =>
-    req("/api/auth/sign-in/email", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }),
-  logout: () => req("/api/auth/sign-out", { method: "POST", body: JSON.stringify({}) }),
-  forgotPassword: (email: string) =>
-    req("/api/auth/request-password-reset", {
-      method: "POST",
-      body: JSON.stringify({ email, redirectTo: "/reset-password" }),
-    }),
-  resetPassword: (token: string, newPassword: string) =>
-    req("/api/auth/reset-password", {
-      method: "POST",
-      body: JSON.stringify({ token, newPassword }),
-    }),
-  changePassword: (currentPassword: string, newPassword: string) =>
-    req("/api/auth/change-password", {
-      method: "POST",
-      body: JSON.stringify({ currentPassword, newPassword, revokeOtherSessions: true }),
-    }),
   dashboard: () => req<Record<string, unknown>>("/api/dashboard"),
   reports: {
     list: (params: Record<string, string> = {}) => {
@@ -183,7 +157,6 @@ export const api = {
     preferences: (body: { theme?: "light" | "dark"; email_notifications?: boolean }) =>
       req("/api/settings/preferences", { method: "PUT", body: JSON.stringify(body) }),
     exportData: () => req("/api/settings/export"),
-    deleteAccount: () => req("/api/settings/account", { method: "DELETE" }),
   },
   labels: {
     list: () => req<{ labels: Label[] }>("/api/labels"),

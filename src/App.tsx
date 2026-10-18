@@ -1,13 +1,8 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { AuthProvider, useAuth } from "./auth";
-import { api } from "./lib/api";
+import { AuthProvider } from "./auth";
 import { ToastProvider } from "./components/ui";
 import Landing from "./pages/Landing";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import ReportEditor from "./pages/ReportEditor";
 import ReportView from "./pages/ReportView";
@@ -18,22 +13,7 @@ import InviteAccept from "./pages/InviteAccept";
 import { Privacy, Terms, Help } from "./pages/Static";
 import NotFound from "./pages/NotFound";
 
-function Protected({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  if (loading)
-    return (
-      <div className="page" aria-busy="true">
-        <div className="skeleton skeleton-line" style={{ width: "40%" }} />
-        <div className="skeleton skeleton-line" />
-        <div className="skeleton skeleton-line" style={{ width: "70%" }} />
-      </div>
-    );
-  if (!user) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-}
-
 function Topbar() {
-  const { user, logout } = useAuth();
   const [theme, setTheme] = useState(() => localStorage.getItem("reprokit-theme") || "light");
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -50,6 +30,19 @@ function Topbar() {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
+  const navLinks = (
+    <>
+      <Link to="/#how">How it works</Link>
+      <Link to="/#features">Features</Link>
+      <Link to="/privacy">Privacy</Link>
+      <Link to="/help">Help</Link>
+      <Link to="/app">Dashboard</Link>
+      <Link to="/app/settings">Settings</Link>
+      <Link className="btn btn-primary btn-sm" to="/app/reports/new">
+        Create a report
+      </Link>
+    </>
+  );
   return (
     <header className={`topbar${scrolled ? " scrolled" : ""}`}>
       <div className="topbar-inner">
@@ -60,26 +53,7 @@ function Topbar() {
           ReproKit
         </Link>
         <nav className="topbar-nav" aria-label="Main">
-          <Link to="/#how">How it works</Link>
-          <Link to="/#features">Features</Link>
-          <Link to="/privacy">Privacy</Link>
-          <Link to="/help">Help</Link>
-          {user ? (
-            <>
-              <Link to="/app">Dashboard</Link>
-              <Link to="/app/settings">Settings</Link>
-              <button className="btn btn-sm" onClick={() => void logout()}>
-                Log out
-              </button>
-            </>
-          ) : (
-            <>
-              <Link to="/login">Log in</Link>
-              <Link className="btn btn-primary btn-sm" to="/register">
-                Create a report
-              </Link>
-            </>
-          )}
+          {navLinks}
           <button
             className="btn btn-sm"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -99,26 +73,7 @@ function Topbar() {
       </div>
       {menuOpen ? (
         <nav className="mobile-nav" aria-label="Mobile">
-          <Link to="/#how">How it works</Link>
-          <Link to="/#features">Features</Link>
-          <Link to="/privacy">Privacy</Link>
-          <Link to="/help">Help</Link>
-          {user ? (
-            <>
-              <Link to="/app">Dashboard</Link>
-              <Link to="/app/settings">Settings</Link>
-              <button className="btn btn-sm" onClick={() => void logout()}>
-                Log out
-              </button>
-            </>
-          ) : (
-            <>
-              <Link to="/login">Log in</Link>
-              <Link className="btn btn-primary btn-sm" to="/register">
-                Create a report
-              </Link>
-            </>
-          )}
+          {navLinks}
         </nav>
       ) : null}
     </header>
@@ -134,10 +89,6 @@ function ScrollToTop() {
 }
 
 export default function App() {
-  // Warm the session on load (AuthProvider does this too; harmless).
-  useEffect(() => {
-    api.me().catch(() => {});
-  }, []);
   return (
     <AuthProvider>
       <ToastProvider>
@@ -149,63 +100,22 @@ export default function App() {
         <div id="main">
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
+            {/* Old auth routes: no login system anymore — send visitors to the app. */}
+            <Route path="/login" element={<Navigate to="/app" replace />} />
+            <Route path="/register" element={<Navigate to="/app" replace />} />
+            <Route path="/forgot-password" element={<Navigate to="/app" replace />} />
+            <Route path="/reset-password" element={<Navigate to="/app" replace />} />
             <Route path="/share/:token" element={<ShareView />} />
             <Route path="/invite/:code" element={<InviteAccept />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/help" element={<Help />} />
-            <Route
-              path="/app"
-              element={
-                <Protected>
-                  <Dashboard />
-                </Protected>
-              }
-            />
-            <Route
-              path="/app/reports/new"
-              element={
-                <Protected>
-                  <ReportEditor />
-                </Protected>
-              }
-            />
-            <Route
-              path="/app/reports/:id"
-              element={
-                <Protected>
-                  <ReportView />
-                </Protected>
-              }
-            />
-            <Route
-              path="/app/reports/:id/edit"
-              element={
-                <Protected>
-                  <ReportEditor />
-                </Protected>
-              }
-            />
-            <Route
-              path="/app/settings"
-              element={
-                <Protected>
-                  <Settings />
-                </Protected>
-              }
-            />
-            <Route
-              path="/app/workspaces"
-              element={
-                <Protected>
-                  <Workspaces />
-                </Protected>
-              }
-            />
+            <Route path="/app" element={<Dashboard />} />
+            <Route path="/app/reports/new" element={<ReportEditor />} />
+            <Route path="/app/reports/:id" element={<ReportView />} />
+            <Route path="/app/reports/:id/edit" element={<ReportEditor />} />
+            <Route path="/app/settings" element={<Settings />} />
+            <Route path="/app/workspaces" element={<Workspaces />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
@@ -214,7 +124,7 @@ export default function App() {
             <div>
               <strong>ReproKit</strong> — Turn confusing problems into clear, actionable reports.
               <p className="small muted" style={{ marginTop: "0.5rem" }}>
-                Free forever. No tracking. Private by default.
+                Free forever. No tracking. No login needed.
               </p>
             </div>
             <div>

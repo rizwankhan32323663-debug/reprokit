@@ -89,7 +89,7 @@ export default function Landing() {
               and environment details anyone can follow.
             </p>
             <div className="hero-actions">
-              <Link className="btn btn-primary" to="/register">
+              <Link className="btn btn-primary" to="/app/reports/new">
                 Create a report — free
               </Link>
               <Link className="btn" to="/#how">
@@ -245,7 +245,7 @@ export default function Landing() {
               Jam $0–14/creator · Marker.io $39–499/mo · BugHerd $42–150/mo ·
               Usersnap €39–319/mo.
             </p>
-            <Link className="btn btn-primary" to="/register">
+            <Link className="btn btn-primary" to="/app/reports/new">
               Create a report — free
             </Link>
           </div>
@@ -310,7 +310,7 @@ export default function Landing() {
           <p className="muted" style={{ margin: "0 auto 1.5rem" }}>
             Your first report takes a few minutes — and it is free.
           </p>
-          <Link className="btn btn-primary" to="/register">
+          <Link className="btn btn-primary" to="/app/reports/new">
             Create a report — free
           </Link>
         </div>

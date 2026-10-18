@@ -5,8 +5,7 @@
  * CSRF posture: for POST/PUT/PATCH/DELETE, when an Origin or Referer header
  * is present it must match the request origin; when neither is present the
  * request is allowed (covers non-browser clients) because session cookies
- * are SameSite=Lax and better-auth performs its own origin check on auth
- * routes. This control is covered by tests in TESTING.md.
+ * are SameSite=Lax. This control is covered by tests in TESTING.md.
  */
 export async function onRequest(context: {
   request: Request;

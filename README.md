@@ -43,7 +43,7 @@ it; follow "Production setup" below.
 | Backend | Cloudflare Pages Functions, `functions/api/` (TypeScript, Workers runtime) |
 | Database | Cloudflare D1 (`DB` binding), migrations in `migrations/` |
 | Storage | Cloudflare KV (`EVIDENCE_KV` binding), private — no public URL. R2 supported via `STORAGE_PROVIDER=r2` (see "Storage & R2 migration path") |
-| Auth | better-auth 1.7.10 + `@better-auth/kysely-adapter` + `kysely-d1` |
+| Auth | None — single-user no-login mode (fixed owner, no sessions, no passwords) |
 | PDF export | jsPDF 2.5.1 (npm, MIT — LICENSE vendored in `public/vendor/`) |
 
 No secrets live in this repo. Secrets go in Cloudflare dashboard secret
@@ -71,13 +71,14 @@ this ID); local dev still uses a separate local D1 database.
 booleans (never any secret or env value):
 
 ```json
-{ "ok": true, "db": true, "kv": true, "secretSet": true, "authUrlSet": true, "storageProvider": "kv", "time": "2026-10-17T20:35:09.680Z" }
+{ "ok": true, "db": true, "kv": true, "storageProvider": "kv", "time": "2026-10-18T05:13:16.975Z" }
 ```
 
-Use it after a deploy to verify the runtime bindings (`db`, `kv`,
-`secretSet`, `authUrlSet`) before running live login/upload tests. If
-`db` is `false`, the D1 binding is not reaching the Functions runtime —
-check `wrangler.toml` `database_id` and the dashboard binding.
+Use it after a deploy to verify the runtime bindings (`db`, `kv`)
+before running live smoke tests. If `db` is `false`, the D1 binding is
+not reaching the Functions runtime — attach it in the dashboard
+(Settings → Bindings: `DB` → D1 database, `EVIDENCE_KV` → KV namespace;
+production Pages ignores `wrangler.toml` bindings) and redeploy.
 
 ## Production setup (Cloudflare dashboard)
 
@@ -87,16 +88,19 @@ separately from this repo):
 1. **Pages project** — Connect the `reprokit` GitHub repo. Build command:
    `npm run build`. Build output directory: `dist`. Root directory: `/`.
    Framework preset: none (Vite output is static).
-2. **Compatibility flags** — set `nodejs_compat` on the Pages project.
-   better-auth uses `node:crypto` (scrypt); without this flag the Functions
-   worker fails to start. (Also present in `wrangler.toml` for local dev.)
-3. **D1 database** — Create a database named `reprokit-db`. Bind it as `DB`.
+2. **Compatibility flags** — set `nodejs_compat` on the Pages project
+   (also present in `wrangler.toml` for local dev).
+3. **D1 database** — Create a database named `reprokit-db`. Bind it as `DB`
+   (dashboard → Settings → Bindings → Add binding → D1 database; production
+   Pages ignores `wrangler.toml` bindings, so this dashboard step is required).
    Apply migrations: `wrangler d1 migrations apply DB --remote` (from this
    repo), or run each file in `migrations/` in order via the dashboard SQL
    console. Migrations are additive-only and tracked — re-running is a no-op.
    **Never run migrations against production without a backup first** (below).
 4. **KV namespace** — Create a KV namespace named `reprokit-evidence-kv`.
-   Bind it as `EVIDENCE_KV` (production + preview). KV holds ONLY attachment
+   Bind it as `EVIDENCE_KV` (dashboard → Settings → Bindings → Add binding →
+   KV namespace; production + preview — the dashboard step is required,
+   production Pages ignores `wrangler.toml` bindings). KV holds ONLY attachment
    file bytes + small metadata; D1 remains the source of truth for users,
    reports, ownership, permissions, and quotas. KV has no public URL — every
    download is proxied through an authenticated, permission-checked API route.
@@ -107,18 +111,10 @@ separately from this repo):
      `r2` if you have a private `reprokit-evidence` bucket bound as `EVIDENCE`
      (R2 requires a payment method on the Cloudflare account to activate —
      KV does not).
-5. **Secrets** (dashboard → Settings → Environment variables → Secrets):
-   - `BETTER_AUTH_SECRET` — a long random secret (e.g. `openssl rand -hex 32`).
-     Generate it fresh for production; never reuse the local dev value.
-6. **Variables** (dashboard → Settings → Environment variables):
-   - `BETTER_AUTH_URL` — the production site URL, e.g.
-     `https://reprokit.pages.dev` (replace with the real assigned URL).
-7. **Deploy** — trigger a Pages deployment from the connected repo.
-8. **Post-deploy verification** — run the checks in [TESTING.md](TESTING.md)
-   "Live deployment" against the production URL (register → login → create
-   report → verify persistence → share/revoke → cross-user isolation).
-   Do NOT run the destructive checks (account deletion, rate-limit lockout)
-   against a production account you care about.
+5. **Deploy** — trigger a Pages deployment from the connected repo.
+6. **Post-deploy verification** — run the checks in [TESTING.md](TESTING.md)
+   "Live deployment" against the production URL (`/api/health` first, then
+   create report → verify persistence → share/revoke → upload).
 9. **Domain placeholders** — `public/robots.txt` and `public/sitemap.xml`
    contain `REPLACE-WITH-PRODUCTION-URL`. After the real domain is known,
    replace it and redeploy.
@@ -180,26 +176,25 @@ assuming the same behavior.
 4. Redacted copies are ordinary objects through the same interface — no
    special handling needed.
 
-**Retention / deletion.** Account deletion removes the user row, cascades
-their reports/comments, deletes their attachments' storage objects, and transfers
-or deletes workspaces they own (see `functions/api/settings/account.ts`).
+**Retention / deletion.** There is no account system (single-user no-login
+mode). Deleting a report removes its steps, comments, and attachments
+(attachment bytes are removed from storage, then the D1 row is marked
+deleted). Deleting a workspace removes its memberships and invites.
 Backups are NOT automatically purged — delete old backup files on the same
 schedule you keep them.
 
 ## Security
 
 See [SECURITY.md](SECURITY.md) for controls + test evidence. Headline:
-- better-auth owns password hashing (scrypt) + sessions; reset/verification
-  token identifiers stored SHA-256-hashed, expiring (reset ~1h, verify ~24h),
-  single-use.
+- No login system (single-user mode): no passwords, sessions, or cookies —
+  every request acts as the single fixed owner; no credential attack surface.
 - Ownership + workspace permission checks on every endpoint; 403 without
   leaking existence.
 - KV private (no public URL); magic-bytes upload validation (PNG/JPEG/WebP, ≤10 MB);
   downloads authorized per request; revoked share links re-verified on every
   access. Per-owner + per-workspace storage quotas enforced before upload.
-- D1-backed rate limiting: auth endpoints 5 attempts / 15 min per IP+email;
-  report creation 30/min; uploads 20/hour.
-- CSRF: SameSite=Lax session cookies + Origin/Referer check on mutations.
+- D1-backed rate limiting: report creation 30/min; uploads 20/hour.
+- CSRF: Origin/Referer check on mutations via `functions/_middleware.ts`.
 - Security headers via `functions/_middleware.ts` + `public/_headers`.
 - Server-side zod validation everywhere; user text escaped on render.
 

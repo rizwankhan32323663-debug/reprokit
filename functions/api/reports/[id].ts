@@ -1,4 +1,4 @@
-import { getSession } from "../../lib/auth";
+import { FIXED_OWNER_ID, getSession } from "../../lib/auth";
 import { canEditReport, canViewReport, getReport, logActivity } from "../../lib/permissions";
 import { err, json, now, type Env } from "../../lib/util";
 import { reportUpdateSchema, zodErrorMessage } from "../../lib/schemas";
@@ -24,7 +24,7 @@ export async function onRequestGet(context: { request: Request; env: Env; params
     "SELECT id, filename, content_type, size_bytes, caption, is_redacted, created_at FROM attachments WHERE report_id = ? AND deleted_at IS NULL ORDER BY created_at ASC"
   ).bind(report.id).all();
   const comments = await context.env.DB.prepare(
-    "SELECT c.*, u.name AS author_name FROM comments c JOIN user u ON u.id = c.author_id WHERE report_id = ? ORDER BY created_at ASC"
+    "SELECT c.*, COALESCE(u.name, 'Owner') AS author_name FROM comments c LEFT JOIN user u ON u.id = c.author_id WHERE report_id = ? ORDER BY created_at ASC"
   ).bind(report.id).all();
   const labels = await context.env.DB.prepare(
     "SELECT l.* FROM labels l JOIN report_labels rl ON rl.label_id = l.id WHERE rl.report_id = ?"
@@ -55,8 +55,12 @@ export async function onRequestPut(context: { request: Request; env: Env; params
   }
 
   if (d.assignee_id !== undefined && d.assignee_id) {
-    const assignee = await context.env.DB.prepare("SELECT id FROM user WHERE id = ?").bind(d.assignee_id).first();
-    if (!assignee) return err("Assignee not found", 400);
+    // The fixed single owner ("owner") is always valid without a user-table
+    // row (no-login mode).
+    if (d.assignee_id !== FIXED_OWNER_ID) {
+      const assignee = await context.env.DB.prepare("SELECT id FROM user WHERE id = ?").bind(d.assignee_id).first();
+      if (!assignee) return err("Assignee not found", 400);
+    }
     const wsId = d.workspace_id !== undefined ? d.workspace_id : report.workspace_id;
     if (wsId) {
       const member = await context.env.DB.prepare(

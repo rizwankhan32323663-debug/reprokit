@@ -1,4 +1,4 @@
-import { getSession } from "../lib/auth";
+import { FIXED_OWNER_ID, getSession } from "../lib/auth";
 import { logActivity } from "../lib/permissions";
 import { err, getClientIp, json, newId, now, rateLimit, type Env } from "../lib/util";
 import { reportCreateSchema, zodErrorMessage } from "../lib/schemas";
@@ -46,9 +46,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     sort === "title_asc" ? "r.title ASC" : "r.updated_at DESC";
 
   const rows = await env.DB.prepare(
-    `SELECT r.*, u.name AS owner_name,
+    `SELECT r.*, COALESCE(u.name, 'Owner') AS owner_name,
      (SELECT COUNT(*) FROM attachments a WHERE a.report_id = r.id AND a.deleted_at IS NULL) AS attachment_count
-     FROM reports r JOIN user u ON u.id = r.owner_id
+     FROM reports r LEFT JOIN user u ON u.id = r.owner_id
      WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`
   ).bind(...params, limit, offset).all();
   const total = await env.DB.prepare(
@@ -85,10 +85,13 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   }
 
   // Assignee must exist; if the report is in a workspace, the assignee must
-  // be a member of that workspace.
+  // be a member of that workspace. The fixed single owner ("owner") is always
+  // valid without a user-table row (no-login mode).
   if (d.assignee_id) {
-    const assignee = await env.DB.prepare("SELECT id FROM user WHERE id = ?").bind(d.assignee_id).first();
-    if (!assignee) return err("Assignee not found", 400);
+    if (d.assignee_id !== FIXED_OWNER_ID) {
+      const assignee = await env.DB.prepare("SELECT id FROM user WHERE id = ?").bind(d.assignee_id).first();
+      if (!assignee) return err("Assignee not found", 400);
+    }
     if (d.workspace_id) {
       const member = await env.DB.prepare(
         "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"

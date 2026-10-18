@@ -8,8 +8,6 @@ export interface Env {
   EVIDENCE_KV?: KVNamespace;
   /** 'kv' (default) | 'r2'. Unknown values fail closed (storage unavailable). */
   STORAGE_PROVIDER?: string;
-  BETTER_AUTH_SECRET: string;
-  BETTER_AUTH_URL: string;
 }
 
 export function json(data: unknown, status = 200): Response {
